@@ -1,0 +1,105 @@
+---
+title: "backpack_predict_rmse driven"
+author: "WangYong"
+date: "`r Sys.Date()`"
+output: html_document
+editor_options: 
+  markdown: 
+    wrap: 119
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(skimr)
+
+library(tidymodels)
+
+library(bonsai)
+library(lightgbm)
+```
+
+# 1. Define Problem
+
+Welcome to the 2025 Kaggle Playground Series! We plan to continue in the spirit of previous playgrounds, providing
+interesting and approachable datasets for our community to practice their machine learning skills, and anticipate a
+competition each month.
+
+## The Goal:
+
+### original goal: Predict the price of backpacks given various attributes.
+
+According the the dicusion forum, the data looks just noise. On,Feb 4th 2025, the lowest score on leaderboard is about
+38.85851, the 50th score is 39.08183. I submitted the original sample submission.csv as baseline with 39.16456 rmse
+score. The sample_submission.csv price column are are 81.411 which are same for all row.
+
+### interim goal: improve score by EDA and linear model
+
+note: long training time for the large data is complained in the dicussion forum as well. considering heavy noice and
+limited rmse range(38.85\~39.16)
+
+## the dataset files
+
+The dataset for this competition (both train and test) was generated from a deep learning model trained on the Student
+Bag Price Prediction Dataset dataset. Feature distributions are close to, but not exactly the same, as the original.
+Feel free to use the original dataset as part of this competition, both to explore differences as well as to see
+whether incorporating the original in training improves model performance.
+
+Files train.csv - the training dataset; Price is the target train_extra.csv - a whole lot more training data! it should
+be an interesting file. As it was added after complained by data noise and meaningless.
+
+test.csv - the test dataset; your objective is to predict the Price for each row sample_submission.csv - a sample
+submission file in the correct format.
+
+# 2. Measure -RMSE
+
+Root Mean Squared Error (RMSE) Submissions are scored on the root mean squared error. RMSE is defined as:
+$\text{RMSE} = \sqrt{\frac{1}{n} \sum_{i=1}^{n} (y_i - \hat{y}_i)^2}$。
+
+Submission File For each id in the test set, you must predict the Price of the backpack. The file should contain a
+header and have the following format:
+
+id,Price
+
+300000,81.411
+
+300001,81.411
+
+300002,81.411
+
+etc.
+
+# 3. Analysis
+## 3.1 load data and skim them
+```{r}
+get_raw_data <- function(file_name, col_types = cols()) {
+  data_path <- '../input/playground-series-s5e2'
+  full_name <- file.path(data_path, file_name)
+  df <- 
+    read_csv(full_name, col_types = col_types)|>
+    mutate(across(where(is.character), as.factor))
+  return(df)
+}
+
+
+raw_train <- get_raw_data('train.csv')
+raw_train_ext <- get_raw_data('training_extra.csv')
+raw_test <- get_raw_data('test.csv')
+raw_submission <- get_raw_data('sample_submission.csv')
+all_raw_dfs <- list( train=raw_train,
+                    train_ext = raw_train_ext,
+                    test = raw_test,
+                    submission = raw_submission )
+```
+
+## 3.2 quick skim
+```{r}
+all_raw_df |>
+  map(\(x) skim(x))
+
+
+```
+
+# Improve Rmse score(minimize)
+
+# Control - Reproduciable
