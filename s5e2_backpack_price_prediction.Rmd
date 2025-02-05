@@ -94,12 +94,325 @@ all_raw_dfs <- list( train=raw_train,
 
 ## 3.2 quick skim
 ```{r}
-all_raw_df |>
+all_raw_dfs |>
   map(\(x) skim(x))
+```
+
+## 3.3 plot price vs weight ,brand, and Style capacity density_2d plot with 
+```{r}
+raw_train|>
+  sample_n(30000) |>
+  ggplot(aes( x= `Weight Capacity (kg)` ,
+              y=Price,
+              color=Brand,
+              linetype=Style)) +
+  geom_density2d()
+
+```
+What a noise data , it looks there is no clear signal here.
+
+## interaction eda
+```{r}
+#raw_train <- raw_train |> mutate(Compartments = as.factor(Compartments),`Weight Capacity (kg)`=round(`Weight Capacity (kg)`,1))
+fit_tmp <-lm(Price ~
+               (`Weight Capacity (kg)`  +  Brand + Style +
+         
+                Size  +`Laptop Compartment`+ Compartments +     Color   +  Material + Waterproof )^2
+           
+              ,
+              data=raw_train)
+
+fit_tmp|>glance()|>mutate(adj.r.squared= round(adj.r.squared,4))|>select(adj.r.squared, sigma, p.value)
+fit_tmp|>summary()
+```
+
+## compare train and test dataset distribution difference
+```{r}
+#TODO compare train & test 
+```
+
+# 4. Improve Rmse score(minimize)
+
+## 4.1 Recipes
+note: sample_submission score is 39.16456
+all recipe work flow rmse result should be less than 39.0
+### 4.1.1 baseline 
+```{r}
+rcp_bs <- raw_train |>
+  recipe(Price~. )|>
+  update_role(id, new_role='ID')|>
+  step_impute_median(all_double_predictors())|>
+  step_mutate(Compartments = as.factor(Compartments)) |># think about keep it as integer later.
+  step_string2factor(all_nominal_predictors()) |>
+  step_unknown(all_factor_predictors()) |>
+  step_dummy(all_factor_predictors()) |>
+  step_nzv(all_predictors())|>
+  check_missing(all_predictors())
+
+
+rcp_bs|>summary()
+```
+
+### 4.1.2 round weight capacity to 0.1 kg
+```{r}
+rcp_control_cor<- raw_train |>
+  recipe(Price~. )|>
+  update_role(id, new_role='ID')|>
+  step_impute_median(all_double_predictors())|>
+  step_mutate( `Weight Capacity (kg)` = round( `Weight Capacity (kg)`,1),
+    Compartments = as.factor(Compartments),
+              
+              ) |># think about keep it as integer later.
+  step_string2factor(all_nominal_predictors()) |>
+  step_unknown(all_factor_predictors()) |>
+  step_dummy(all_factor_predictors()) |>
+  step_nzv(all_predictors())|>
+  check_missing(all_predictors())
+
+rcp_control_cor|>summary()
+```
+### 4.1.3 interaction brand * style 
+```{r}
+rcp_inter_bs <- raw_train |>
+  recipe(Price~. )|>
+  update_role(id, new_role='ID')|>
+  step_impute_median(all_double_predictors())|>
+  step_mutate( `Weight Capacity (kg)` = round( `Weight Capacity (kg)`,1),
+    Compartments = as.factor(Compartments),
+              
+              ) |># think about keep it as integer later.
+  step_string2factor(all_nominal_predictors()) |>
+  step_unknown(all_factor_predictors()) |>
+  step_interact(terms = ~ Brand:Style) |>
+
+  step_dummy(all_factor_predictors()) |>
+  step_nzv(all_predictors())|>
+  check_missing(all_predictors())
+
+rcp_inter_bs|>summary()
+```
+
+
+
+### 4.1.4 interaction brand*style * others
+```{r}
+rcp_inter_bso <- raw_train |>
+  recipe(Price~. )|>
+  update_role(id, new_role='ID')|>
+  step_impute_median(all_double_predictors())|>
+  step_mutate( `Weight Capacity (kg)` = round( `Weight Capacity (kg)`,1),
+    Compartments = as.factor(Compartments),
+              
+              ) |># think about keep it as integer later.
+  step_string2factor(all_nominal_predictors()) |>
+  step_unknown(all_factor_predictors()) |>
+  step_interact(terms = ~ Brand:Style) |>
+  step_interact(terms = ~Size: Compartments)|>
+  step_interact(terms = ~ Color: Material )|>
+  step_dummy(all_factor_predictors()) |>
+  step_nzv(all_predictors())|>
+  check_missing(all_predictors())
+
+rcp_inter_bso|>prep()|>summary()
+```
+
+### 4.1.5 baseline +factor weightcapacity
+```{r}
+rcp_bs_weight<- raw_train |>
+  recipe(Price~. )|>
+  update_role(id, new_role='ID')|>
+  step_impute_median(all_double_predictors())|>
+  step_rename(cap_kg = `Weight Capacity (kg)`,
+              lap_comp=`Laptop Compartment`)|>
+  step_mutate(Compartments_ratio=cap_kg/Compartments)|>
+ step_discretize(cap_kg, num_breaks = 10)|>
+  step_mutate(Compartments = as.factor(Compartments) ) |># think about keep it as integer later.
+  step_string2factor(all_nominal_predictors()) |>
+  step_unknown(all_factor_predictors()) |>
+  step_interact(terms=~Brand:Style)|>
+  step_interact(terms=~Size:Compartments)|>
+  step_interact(terms=~Material :cap_kg)|>
+  step_interact(terms=~Material : Color)|>
+  step_dummy(all_factor_predictors()) |>
+  step_nzv(all_predictors())|>
+  step_corr(all_predictors())|>
+  check_missing(all_predictors())
+
+rcp_bs_weight|>prep()|>juice() 
+
+```
+### 4.1.5 remove some features
+```{r}
+rcp_bs_selectvar <- raw_train |>
+  recipe(Price~. )|>
+  update_role(id, new_role='ID')|>
+  #step_filter(Brand %in% c('Jansport','Nike'))|>
+  #step_filter(Color %in% c('Blue','Gray','Green','Pink','Red'))|>
+  #step_filter(Material %in% c('Leather','Nylon'))|>
+  step_mutate(Style=case_when(Style =='Messenger' & Brand %in% c('Jansport','Nike','Puma')~'other',
+                              Style =='StyleTote' & Brand %in% c('Under Armour')~'other',
+                              .default=Style ),
+              Color=case_when(Color=='Blue'& Brand %in% c('Jansport','Nike','Under Armour')~'other',
+                              Color=='Gray'& Brand %in% c('Jansport','Under Armour')~'other',
+                              Color=='Red' & Material=='Polyester'~'other',
+                              .default=Color),
+              Material=case_when(Material=='Leather' & Brand %in% c('Under Armour','Puma','Jansport') ~'other',
+                                 Material=='Nylon' & Brand %in% c('Nike','Under Armour') ~'other',
+                                 .default=Material),
+              Size = case_when(Size %in% c('Small','Medium') & Color=='Red' ~ 'other',
+                               Size %in% c('Small','Medium') & Material=='Leather'~'other',
+                               Size =='Small' & Material =='Polyester'~'other',
+                               .default = Size),
+              Brand=case_when(Brand %in% c('Nike','Under Armour')~'others',
+                              .default=Brand),
+              )|>
+  step_impute_median(all_double_predictors())|>
+  step_mutate(Compartments_ratio=`Weight Capacity (kg)`/Compartments)|>
+  step_rename(cap_kg = `Weight Capacity (kg)`,
+              lap_comp=`Laptop Compartment`)|>
+ step_discretize(cap_kg, num_breaks = 10)|>
+  step_mutate(Compartments = as.factor(Compartments)
+              ) |># think about keep it as integer later.
+  step_string2factor(all_nominal_predictors()) |>
+  step_unknown(all_factor_predictors()) |>
+  step_interact(terms=~Brand:Style)|>
+  step_interact(terms=~Size:Compartments)|>
+  step_interact(terms=~Material :cap_kg)|>
+  step_interact(terms=~Material : Color)|>
+  step_dummy(all_factor_predictors()) |>
+  step_nzv(all_predictors())|>
+  check_missing(all_predictors())
+
+
+rcp_bs_selectvar|>prep()|>juice()|>glimpse()
+```
+
+
+### 4.1.10 combine the recipes list
+```{r}
+rcp_list <- list(baseline=rcp_bs,
+                 baseline_weight=rcp_bs_weight,
+                 baseline_select=rcp_bs_selectvar
+                 )
+```
+
+## 4.2 workflows
+### engines
+
+```{r}
+# as tidymodels expert, pls write workflows for me. it should include 4 parts
+# Part 1: Build regression engine using lm
+lm_engine <- 
+  linear_reg() |> 
+  set_engine("lm")|>
+  set_mode("regression")
+
+lgb_model <- 
+  boost_tree(mode = "regression",
+              trees = 300L,  # 设置树的数量
+              tree_depth = 9L,  # 设置树的深度
+              min_n = 10L,  # 设置每个节点的最小样本数
+              mtry = 0.9,
+              loss_reduction=0.001,
+              sample_size=0.8,
+              learn_rate=0.1
+              )|> 
+  set_engine("lightgbm", 
+             verbose=1,
+             metric='rmse',
+             stop_iter = 50L,
+             num_leaves = 5000,  # 设置叶子节点数
+             num_threads =12,
+             count = FALSE
+             )|>
+  set_mode('regression')
+
+
+# Part 2: Fit the engine with the recipe
+lm_wf <- workflow() |> 
+  add_model(lm_engine)
+lgb_wf <- workflow() |>
+  add_model(lgb_model)
+```
+
+### glance Performance of workflow
+
+#### - linear model
+```{r}
+library(furrr)
+plan(multisession, workers = 12)
+
+wfs_performance <- 
+  rcp_list |>
+  future_map_dfr(\(rcp_item) lm_wf|>
+                   add_recipe(rcp_item)|>
+                   fit(data=raw_train)|>
+                   broom::glance(),
+                   .progress=TRUE
+                   )
+plan(sequential)              
+wfs_performance |> print()
+```
+
+#### - lightgbm model
+```{r}
+data_split <-
+  initial_split(raw_train,prop = 0.7 )
+
+train_data <- training(data_split)
+validate_data  <- testing(data_split)
+
+lgb_wf_fitted <- 
+  lgb_wf|>
+  add_recipe(rcp_bs_weight)|>
+  fit(data=train_data)
+
+# Part 3: Use metrics_set to measure the RMSE score of training dataset
+train_pred <- 
+  lgb_wf_fitted|>
+  predict( new_data = validate_data) |>
+  bind_cols(validate_data)
+
+# Define the metrics using metric_set
+metrics <- metric_set(rmse, rsq)
+
+# Calculate the metrics
+results <-
+  train_pred|>
+  metrics(truth = Price, estimate = .pred)
+
+# Print the results
+print(results)
+```
+
+
+```{r}
+lm_fit$fit$fit |> summary()
+```
+
+
+
+```{r}
+# Part 4: Plot residuals to analyze visually
+train_pred |> 
+  ggplot(aes(x = .pred, y = Price - .pred)) +
+  geom_point(alpha = 0.5) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(x = "Predicted Price", y = "Residuals", title = "Residual Plot")
+
+```
+
+
+
+
+
+
+
+
+# 5. Control - Reproduciable
+
+```{r}
 
 
 ```
 
-# Improve Rmse score(minimize)
-
-# Control - Reproduciable
